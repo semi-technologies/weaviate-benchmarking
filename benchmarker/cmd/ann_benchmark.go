@@ -296,9 +296,18 @@ func deleteChunk(chunk *Batch, client *weaviate.Client, cfg *Config) {
 	log.Debugf("Deleting chunk of %d vectors index %d", len(chunk.Vectors), chunk.Offset)
 	for i := range chunk.Vectors {
 		uuid := uuidFromInt(i + chunk.Offset + cfg.Offset)
-		err := client.Data().Deleter().WithClassName(cfg.ClassName).WithID(uuid).Do(context.Background())
+		var err error
+		for attempt := 0; attempt < 3; attempt++ {
+			err = client.Data().Deleter().WithClassName(cfg.ClassName).WithID(uuid).Do(context.Background())
+			if err == nil {
+				break
+			}
+			log.Warnf("Error deleting object (attempt %d): %v", attempt+1, err)
+			log.Warnf("Giving %d seconds to Weaviate to process current requests", 2)
+			time.Sleep(2 * time.Second)
+		}
 		if err != nil {
-			log.Fatalf("Error deleting object: %v", err)
+			log.Fatalf("Error deleting object after 3 attempts: %v", err)
 		}
 	}
 }
@@ -306,9 +315,18 @@ func deleteChunk(chunk *Batch, client *weaviate.Client, cfg *Config) {
 func deleteUuidSlice(cfg *Config, client *weaviate.Client, slice []int) {
 	log.WithFields(log.Fields{"length": len(slice), "class": cfg.ClassName}).Printf("Deleting objects to trigger tombstone operations")
 	for _, i := range slice {
-		err := client.Data().Deleter().WithClassName(cfg.ClassName).WithID(uuidFromInt(i)).Do(context.Background())
+		var err error
+		for attempt := 0; attempt < 3; attempt++ {
+			err = client.Data().Deleter().WithClassName(cfg.ClassName).WithID(uuidFromInt(i)).Do(context.Background())
+			if err == nil {
+				break
+			}
+			log.Warnf("Error deleting object (attempt %d): %v", attempt+1, err)
+			log.Warnf("Giving %d seconds to Weaviate to process current requests", 2)
+			time.Sleep(2 * time.Second)
+		}
 		if err != nil {
-			log.Fatalf("Error deleting object: %v", err)
+			log.Fatalf("Error deleting object after 3 attempts: %v", err)
 		}
 	}
 	log.WithFields(log.Fields{"length": len(slice), "class": cfg.ClassName}).Printf("Completed deletes")
