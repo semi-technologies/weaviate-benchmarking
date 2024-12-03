@@ -39,9 +39,10 @@ import (
 type CompressionType byte
 
 const (
-	CompressionTypePQ   CompressionType = 0
-	CompressionTypeSQ   CompressionType = 1
-	CompressionTypeLASQ CompressionType = 2
+	CompressionTypePQ CompressionType = iota
+	CompressionTypeSQ
+	CompressionTypeBQ
+	CompressionTypeLASQ
 )
 
 // Batch of vectors and offset for writing to Weaviate
@@ -238,6 +239,7 @@ func createSchema(cfg *Config, client *weaviate.Client) {
 				"sq": map[string]interface{}{
 					"enabled":       true,
 					"trainingLimit": cfg.TrainingLimit,
+					"rescoreLimit":  cfg.RescoreLimit,
 				},
 			}
 		} else if cfg.LASQ == "auto" {
@@ -430,6 +432,11 @@ func enableCompression(cfg *Config, client *weaviate.Client, dimensions uint, co
 			"segments":      segments,
 			"trainingLimit": cfg.TrainingLimit,
 			"rescoreLimit":  cfg.RescoreLimit,
+		}
+	case CompressionTypeBQ:
+		vectorIndexConfig["bq"] = map[string]interface{}{
+			"enabled":      true,
+			"rescoreLimit": cfg.RescoreLimit,
 		}
 	case CompressionTypeSQ:
 		vectorIndexConfig["sq"] = map[string]interface{}{
@@ -812,27 +819,27 @@ func loadANNBenchmarksFile(file *hdf5.File, cfg *Config, client *weaviate.Client
 	addTenantIfNeeded(cfg, client)
 	startTime := time.Now()
 
-	if cfg.PQ == "enabled" {
+	loadThenCompress := func(description string, compType CompressionType) {
+		// Load data up to training limit
 		dimensions := loadHdf5Train(file, cfg, 0, uint(cfg.TrainingLimit), 0)
-		log.Printf("Pausing to enable PQ.")
-		enableCompression(cfg, client, dimensions, CompressionTypePQ)
+		log.Printf("Pausing to enable %s.", description)
+		enableCompression(cfg, client, dimensions, compType)
+		// Load rest of the data
 		loadHdf5Train(file, cfg, uint(cfg.TrainingLimit), 0, 0)
+	}
 
-	} else if cfg.SQ == "enabled" {
-		dimensions := loadHdf5Train(file, cfg, 0, uint(cfg.TrainingLimit), 0)
-		log.Printf("Pausing to enable SQ.")
-		enableCompression(cfg, client, dimensions, CompressionTypeSQ)
-		loadHdf5Train(file, cfg, uint(cfg.TrainingLimit), 0, 0)
-
-	} else if cfg.LASQ == "enabled" {
-		dimensions := loadHdf5Train(file, cfg, 0, uint(cfg.TrainingLimit), 0)
-		log.Printf("Pausing to enable LASQ.")
-		enableCompression(cfg, client, dimensions, CompressionTypeLASQ)
-		loadHdf5Train(file, cfg, uint(cfg.TrainingLimit), 0, 0)
-
-	} else {
+	switch {
+	// Note we only include here types than need training data (so not BQ)
+	case cfg.PQ == "enabled":
+		loadThenCompress("PQ", CompressionTypePQ)
+	case cfg.SQ == "enabled":
+		loadThenCompress("SQ", CompressionTypeSQ)
+	case cfg.LASQ == "enabled":
+		loadThenCompress("LASQ", CompressionTypeLASQ)
+	default:
 		loadHdf5Train(file, cfg, 0, maxRows, 0)
 	}
+
 	endTime := time.Now()
 	log.WithFields(log.Fields{"duration": endTime.Sub(startTime)}).Printf("Total load time\n")
 	if !cfg.SkipAsyncReady {
