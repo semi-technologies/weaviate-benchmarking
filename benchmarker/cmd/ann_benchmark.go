@@ -1030,6 +1030,20 @@ func runQueries(cfg *Config, importTime time.Duration, testData [][]float32, nei
 
 		benchmarkResultsMap = append(benchmarkResultsMap, resultMap)
 
+		// Push metrics to Prometheus if enabled
+		if cfg.PrometheusConfig.Enabled {
+			if err := PushMetricsToPrometheus(cfg, &benchResult); err != nil {
+				log.WithError(err).Warn("Failed to push metrics to Prometheus")
+			}
+		}
+
+		// Push metrics to InfluxDB if enabled
+		if cfg.InfluxDBConfig.Enabled {
+			if err := PushMetricsToInfluxDB(cfg, &benchResult); err != nil {
+				log.WithError(err).Warn("Failed to push metrics to InfluxDB")
+			}
+		}
+
 	}
 
 	data, err := json.MarshalIndent(benchmarkResultsMap, "", "    ")
@@ -1259,6 +1273,26 @@ func initAnnBenchmark() {
 		"replicationFactor", 1, "Replication factor (default 1)")
 	annBenchmarkCommand.PersistentFlags().BoolVar(&globalConfig.AsyncReplicationEnabled,
 		"asyncReplicationEnabled", false, "Enable asynchronous replication (default false)")
+
+	// Add Prometheus flags
+	annBenchmarkCommand.PersistentFlags().BoolVar(&globalConfig.PrometheusConfig.Enabled,
+		"prometheusEnabled", false, "Enable pushing metrics to Prometheus (default false)")
+	annBenchmarkCommand.PersistentFlags().StringVar(&globalConfig.PrometheusConfig.PushURL,
+		"prometheusPushURL", "", "URL of the Prometheus pushgateway (e.g., http://localhost:9091)")
+	annBenchmarkCommand.PersistentFlags().StringVar(&globalConfig.PrometheusConfig.JobName,
+		"prometheusJobName", "weaviate_benchmark", "Job name for Prometheus metrics (default weaviate_benchmark)")
+
+	// Add InfluxDB flags
+	annBenchmarkCommand.PersistentFlags().BoolVar(&globalConfig.InfluxDBConfig.Enabled,
+		"influxdbEnabled", false, "Enable pushing metrics to InfluxDB (default false)")
+	annBenchmarkCommand.PersistentFlags().StringVar(&globalConfig.InfluxDBConfig.URL,
+		"influxdbURL", "", "URL of the InfluxDB instance (e.g., http://localhost:8086)")
+	annBenchmarkCommand.PersistentFlags().StringVar(&globalConfig.InfluxDBConfig.Token,
+		"influxdbToken", "", "Token for authenticating with InfluxDB")
+	annBenchmarkCommand.PersistentFlags().StringVar(&globalConfig.InfluxDBConfig.Org,
+		"influxdbOrg", "", "Organization name in InfluxDB")
+	annBenchmarkCommand.PersistentFlags().StringVar(&globalConfig.InfluxDBConfig.Bucket,
+		"influxdbBucket", "", "Bucket name in InfluxDB")
 }
 
 func benchmarkANN(cfg Config, queries Queries, neighbors Neighbors, filters []int) Results {
